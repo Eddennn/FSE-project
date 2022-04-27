@@ -1,0 +1,131 @@
+#imports
+import board
+import adafruit_tcs34725
+import RPi.GPIO as GPIO
+import time
+from gpiozero import PWMOutputDevice
+
+#identify pins= what channel each sensor connects to
+ObstaclePin = 27
+TRIG = 17
+ECHO = 18
+Buzzer = 22
+motor = PWMOutputDevice(25)
+
+"""code to set up ultrasonic, RGB, and obstacle avoidance sensors
+displays input from sensors to screen"""
+#ultrasonic and OA setup
+def setupA():
+    GPIO.setmode(GPIO.BCM)
+    GPIO.setup(TRIG, GPIO.OUT)
+    GPIO.setup(ECHO, GPIO.IN)
+    GPIO.setup(ObstaclePin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+
+#setup for buzzer
+def setup(pin):
+    global BuzzerPin
+    BuzzerPin = pin
+    GPIO.setmode(GPIO.BCM)       # Numbers GPIOs by physical location
+    GPIO.setup(BuzzerPin, GPIO.OUT)
+    GPIO.output(BuzzerPin, GPIO.HIGH)
+
+#RGB sensor setup
+def color():
+    i2c = board.I2C()
+    sensor = adafruit_tcs34725.TCS34725(i2c)
+    return sensor
+
+
+#ultrasonic sensor computing code
+def distance():
+    GPIO.output(TRIG, 0)
+    time.sleep(0.000002)
+
+    GPIO.output(TRIG, 1)
+    time.sleep(0.00001)
+    GPIO.output(TRIG, 0)
+
+    
+    while GPIO.input(ECHO) == 0:
+        a = 0
+    time1 = time.time()
+    while GPIO.input(ECHO) == 1:
+        a = 1
+    time2 = time.time()
+
+    during = time2 - time1
+    return during * 340 / 2 * 100
+
+#Buzzer computing code
+def on():
+    GPIO.output(BuzzerPin, GPIO.LOW)
+
+def off():
+    GPIO.output(BuzzerPin, GPIO.HIGH)
+
+def beep(x):
+    on()
+    time.sleep(x)
+    off()
+    time.sleep(x)
+
+def destroyBuzzer():
+    GPIO.output(BuzzerPin, GPIO.HIGH)
+    GPIO.cleanup()
+
+def destroy():
+    GPIO.cleanup()
+
+"""Code to use input from sensors to meet conditions of product.
+    use the input from the sensors to display the appropriate
+    feedback through output sensors(vibration and buzzer)"""
+
+#add if statement inside while loop if we choose to incorporate
+#an on/off button
+def sensors():
+    while True:
+        #state 1: Ultrasonic and OA detect object in path
+        #vibration 1 as feedback
+        UltraDistance = distance()
+        if (UltraDistance <= 90.0) or (0 == GPIO.input(ObstaclePin)):
+            print("obstacle detected, please wait")
+            motor.value = 1
+        elif (UltraDistance >= 90.0) and (0 != GPIO.input(ObstaclePin)):    
+            motor.value = 0
+            print("No obstacle")
+            count = 0
+            while True:
+                setup(Buzzer)
+                beep(0.5)
+                count += 1
+                if count == 3:
+                    break 
+            #at intersection, this code sets off vibrations based on RGB sensor
+            #to indicate whether or not the intesection is clear to cross
+            #while loop to keep rgb sensor running while at intersection
+            while True:
+                sensorLoop = color()
+                colorType = sensorLoop.color_rgb_bytes
+                rgbValue = 0
+                count = 0
+                colorID = [0,0,0]
+                for x in colorType:
+                    colorID[count] = x
+                    count +=1
+
+                #if-statement to identify the color of the sign at the intersection
+                if (colorID[0] > colorID[1]) and (colorID[0] > colorID[2]) and (colorID[0] > 20):
+                    rgbValue = 1 #rgb value is red
+                elif (colorID[0] == colorID[1]) and (colorID[0] == colorID[2]):
+                    rgbValue = 2 #rgb value is white
+                #if-statement to provide output based on what color is detected
+                GPIO.setmode(GPIO.BCM)
+                if (0 != GPIO.input(ObstaclePin)) and (rgbValue == 1):
+                    #code to print vibration2 == RED LIGHT DONT GO
+                    print("stop light don't go")
+                    for x in range(0, 3):
+                        motor.value = 1
+                        time.sleep(.2)
+                        motor.value = 0
+                        time.sleep(.8)
+                    time.sleep(1)
